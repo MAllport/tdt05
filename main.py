@@ -3,14 +3,18 @@ import sklearn as sk
 import numpy as np
 import matplotlib.pyplot as plt
 import string
+
 from sklearn.impute import SimpleImputer
-
 from functools import partial
-
 from sklearn import preprocessing
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
+from sklearn.model_selection import learning_curve
+from sklearn.model_selection import ShuffleSplit
+from joblib import Parallel, delayed
+
+from plots import plot_learning_curve
 
 counter = 1
 
@@ -86,8 +90,6 @@ def normalize_data(train,test):
     imp_mean_test.fit(test_feature)
     test_feature = pd.DataFrame(imp_mean_test.transform(test_feature))
 
-    print(train_feature.head())
-
 
     train_label.join(train_feature).to_csv('datasets/transformed_train.csv', index = False)
     test_label.join(test_feature).to_csv('datasets/transformed_test.csv', index = False)
@@ -95,17 +97,22 @@ def normalize_data(train,test):
     return train_label, train_feature, test_label, test_feature
 
 def naive_bayes(train_label, train_feature, test_label, test_feature):
-    model = LogisticRegression()
+    model = GaussianNB
     model.fit(train_feature, train_label['target'].astype('int'))
     predicted = model.predict(test_feature)
 
-    print(model.score(train_feature, train_label['target'].astype('int')))
+def logistic_plot(train_label, train_feature, test_label, test_feature):
+    fig, axes = plt.subplots(3, 2, figsize=(10, 15))
 
-    print(pd.DataFrame(predicted).head(50))
-    print(train_label['target'].head(50))
+    title = "Learning Curves (Logistic)"
+    # Cross validation with 100 iterations to get smoother mean test and train
+    # score curves, each time with 20% data randomly selected as a validation set.
+    cv = ShuffleSplit(n_splits=100, test_size=0.2, random_state=0)
 
-
-
+    estimator = LogisticRegression(max_iter = 100000)
+    print(estimator.get_params())
+    plot_learning_curve(estimator, title, train_feature, train_label['target'].astype('int'), axes=axes[:, 0], ylim=(0.7, 1.01),
+                        cv=cv, n_jobs=4)
 
 
 #train, test = read_dataset()
@@ -118,4 +125,5 @@ test  =  pd.read_csv(test_csv)
 train_label, train_feature = np.split(train, [2], axis = 1)
 test_label, test_feature =  np.split(test, [1], axis = 1)
 
-naive_bayes(train_label,train_feature, test_label, test_feature)
+logistic_plot(train_label,train_feature, test_label, test_feature)
+plt.show()
