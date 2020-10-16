@@ -17,6 +17,7 @@ from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import make_column_transformer
 from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.utils import resample
 
 
 def converter(x,feature):
@@ -81,9 +82,22 @@ def main():
 
     with open('datasets/challenge1_train.csv') as train_csv:
         df = pd.read_csv(train_csv)
+    
+    # Upsampling
+
+    df_0 = df[df.target == 0]
+    df_1 = df[df.target == 1]
+
+    df_1_upsampled = resample(df_1, 
+                              replace=True,           # sample with replacement
+                              n_samples=df_0.size,    # to match majority class
+                              random_state=123)
+
+    df = pd.concat([df_0, df_1_upsampled])  
 
     labels = df['target']
     features = df.drop(columns=['target', 'id'])
+
 
     # TODO: preprocess test features when we want to predict on test set
     for i in range(25):
@@ -140,9 +154,10 @@ def main():
         print("model score: %.3f" % classifier.score(X_test, y_test))
 
         predicted = classifier.predict(X_test)
+
         targets = y_test
 
-        scores = cross_val_score(classifier, X_test, y_test, cv=5, scoring='f1_macro')
+        scores = cross_val_score(classifier, X_test, y_test, cv=5)
         
         evaluate_model(targets, predicted, scores)
 
