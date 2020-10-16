@@ -4,14 +4,14 @@ import numpy as np
 import matplotlib.pyplot as plt
 import string
 
-from sklearn.impute import SimpleImputer
+from sklearn.experimental import enable_iterative_imputer
+from sklearn.impute import SimpleImputer, IterativeImputer
 from functools import partial
 from sklearn import preprocessing
 from sklearn.naive_bayes import GaussianNB
-from sklearn.linear_model import LogisticRegression
+from sklearn.linear_model import LogisticRegression, BayesianRidge
 from sklearn.metrics import accuracy_score
-from sklearn.model_selection import learning_curve
-from sklearn.model_selection import ShuffleSplit
+from sklearn.model_selection import learning_curve, ShuffleSplit, train_test_split
 from joblib import Parallel, delayed
 
 from plots import plot_learning_curve
@@ -23,22 +23,21 @@ def read_dataset():
     train_csv = open('datasets/challenge1_train.csv',"r")
     test_csv = open('datasets/challenge1_test.csv',"r")
 
-    train = pd.read_csv(train_csv)
-    test  =  pd.read_csv(test_csv)
+    _, y, X = np.split(pd.read_csv(train_csv), [1,2], axis = 1)
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
 
-    return train, test
+    return X_train, X_test, y_train, y_test
 
 def converter(x,feature):
-
     if x == "" or pd.isna(x): return np.nan
-    elif feature == 'f0' : return int(x,16)
+    elif feature == 'f0' and all(c in string.hexdigits for c in x): return int(x,16)
     elif feature == 'f1' : return x
     elif feature == 'f2' : return x
     elif feature == 'f3' : return ord(x) - 96
     elif feature == 'f4' : return x
     elif feature == 'f5' : return x
     elif feature == 'f6' : return x
-    elif feature == 'f7' : return int(x,16)
+    elif feature == 'f7' and all(c in string.hexdigits for c in x): return int(x,16)
     elif feature == 'f8' : return x
     elif feature == 'f9' : return x
     elif feature == 'f10': return x
@@ -46,7 +45,7 @@ def converter(x,feature):
     elif feature == 'f12': return x
     elif feature == 'f13': return x
     elif feature == 'f14': return ord(x) - 96
-    elif feature == 'f15': return int(x,16)
+    elif feature == 'f15' and all(c in string.hexdigits for c in x): return int(x,16)
     elif feature == 'f16': return ord(x.lower()) - 96
     elif feature == 'f17': return x
     elif feature == 'f18': return x
@@ -54,54 +53,139 @@ def converter(x,feature):
     elif feature == 'f20': return x
     elif feature == 'f21': return ord(x.lower()) - 96
     elif feature == 'f22': return x
-    elif feature == 'f23': return int(x,16)
+    elif feature == 'f23' and all(c in string.hexdigits for c in x): return int(x,16)
+    elif feature == 'f24' and all(c in string.hexdigits for c in x): return int(x,16)
+
+def converter_categorical(x,feature):
+
+    if x == "" or pd.isna(x): return np.nan
+    elif feature == 'f0' and all(c in string.hexdigits for c in x): return int(x,16)
+    elif feature == 'f1' : return x
+    elif feature == 'f2' : return x
+    elif feature == 'f3' : return x
+    elif feature == 'f4' : return x
+    elif feature == 'f5' : return x
+    elif feature == 'f6' : return x
+    elif feature == 'f7' and all(c in string.hexdigits for c in x): return int(x,16)
+    elif feature == 'f8' : return x
+    elif feature == 'f9' : return x
+    elif feature == 'f10': return x
+    elif feature == 'f11': return x
+    elif feature == 'f12': return x
+    elif feature == 'f13': return x
+    elif feature == 'f14': return x
+    elif feature == 'f15' and all(c in string.hexdigits for c in x): return int(x,16)
+    elif feature == 'f16': return x
+    elif feature == 'f17': return x
+    elif feature == 'f18': return x
+    elif feature == 'f19': return x
+    elif feature == 'f20': return x
+    elif feature == 'f21': return x
+    elif feature == 'f22': return x
+    elif feature == 'f23' and all(c in string.hexdigits for c in x): return int(x,16)
     elif feature == 'f24' and all(c in string.hexdigits for c in x): return int(x,16)
 
 def normalize_data(train,test):
-    train_label, train_feature = np.split(train, [2], axis = 1)
-    test_label, test_feature =  np.split(test, [1], axis = 1)
-
     for i in range(25):
         feature = 'f' + str(i)
-        train_feature[feature] = train_feature[feature].apply(lambda x: converter(x,feature),1)
-        test_feature[feature]  = test_feature[feature].apply(lambda x: converter(x,feature),1)
+        train[feature] = train[feature].apply(lambda x: converter(x,feature),1)
+        test[feature]  = test[feature].apply(lambda x: converter(x,feature),1)
 
     # Use LabelEncoder to encode feature "f9"
     #label_encoder = preprocessing.LabelEncoder()
 
-    #train_feature['f9'] = label_encoder.fit_transform(train_feature['f9'].fillna('0'))
-    #test_feature['f9'] = label_encoder.fit_transform(test_feature['f9'].fillna('0'))
+    #train['f9'] = label_encoder.fit_transform(train['f9'].fillna('0'))
+    #test['f9'] = label_encoder.fit_transform(test['f9'].fillna('0'))
 
-    one_hot_train = pd.get_dummies(train_feature['f9'], prefix='f')
-    one_hot_test = pd.get_dummies(test_feature['f9'], prefix='f')
+    one_hot_train = pd.get_dummies(train['f9'], prefix='f')
+    one_hot_test = pd.get_dummies(test['f9'], prefix='f')
 
-    train_feature = train_feature.join(one_hot_train).drop(['f9'],axis=1)
-    test_feature  = test_feature.join(one_hot_test).drop(['f9'],axis=1)
+    train = train.join(one_hot_train).drop(['f9'],axis=1)
+    test  = test.join(one_hot_test).drop(['f9'],axis=1)
 
     min_max_scaler = preprocessing.MinMaxScaler()
-    train_feature = pd.DataFrame(min_max_scaler.fit_transform(train_feature), columns=train_feature.columns, index=train_feature.index)
-    test_feature  = pd.DataFrame(min_max_scaler.fit_transform(test_feature), columns=test_feature.columns, index=test_feature.index)
+    train = pd.DataFrame(min_max_scaler.fit_transform(train), columns=train.columns, index=train.index)
+    test  = pd.DataFrame(min_max_scaler.fit_transform(test), columns=test.columns, index=test.index)
 
     imp_mean_train = SimpleImputer(missing_values=np.nan, strategy='mean')
-    imp_mean_train.fit(train_feature)
-    train_feature = pd.DataFrame(imp_mean_train.transform(train_feature))
+    imp_mean_train.fit(train)
+    train = pd.DataFrame(imp_mean_train.transform(train))
 
     imp_mean_test = SimpleImputer(missing_values=np.nan, strategy='mean')
-    imp_mean_test.fit(test_feature)
-    test_feature = pd.DataFrame(imp_mean_test.transform(test_feature))
+    imp_mean_test.fit(test)
+    test = pd.DataFrame(imp_mean_test.transform(test))
+
+    return train, test
+
+def normalize_data_it(X,y):
+    print(y.head())
+    print(y['target'].astype('int').dtype)
+    for i in range(25):
+        feature = 'f' + str(i)
+        X[feature] = X[feature].apply(lambda x: converter_categorical(x,feature),1)
 
 
-    train_label.join(train_feature).to_csv('datasets/transformed_train.csv', index = False)
-    test_label.join(test_feature).to_csv('datasets/transformed_test.csv', index = False)
 
-    return train_label, train_feature, test_label, test_feature
+    X = X.join(pd.get_dummies(X['f3'], prefix='f3')).drop(['f3'],axis=1)
+    X = X.join(pd.get_dummies(X['f4'], prefix='f4')).drop(['f4'],axis=1)
+    X = X.join(pd.get_dummies(X['f5'], prefix='f5')).drop(['f5'],axis=1)
+    X = X.join(pd.get_dummies(X['f6'], prefix='f6')).drop(['f6'],axis=1)
+    X = X.join(pd.get_dummies(X['f8'], prefix='f8')).drop(['f8'],axis=1)
+    X = X.join(pd.get_dummies(X['f9'], prefix='f9')).drop(['f9'],axis=1)
+    X = X.join(pd.get_dummies(X['f13'], prefix='f13')).drop(['f13'],axis=1)
+    X = X.join(pd.get_dummies(X['f14'], prefix='f14')).drop(['f14'],axis=1)
+    X = X.join(pd.get_dummies(X['f16'], prefix='f16')).drop(['f16'],axis=1)
+    X = X.join(pd.get_dummies(X['f17'], prefix='f17')).drop(['f17'],axis=1)
+    X = X.join(pd.get_dummies(X['f19'], prefix='f19')).drop(['f19'],axis=1)
+    X = X.join(pd.get_dummies(X['f20'], prefix='f20')).drop(['f20'],axis=1)
+    X = X.join(pd.get_dummies(X['f21'], prefix='f21')).drop(['f21'],axis=1)
 
-def naive_bayes(train_label, train_feature, test_label, test_feature):
+    min_max_scaler = preprocessing.MinMaxScaler()
+    X = pd.DataFrame(min_max_scaler.fit_transform(X), columns=X.columns, index=X.index)
+
+    imp_mean_train = IterativeImputer(missing_values=np.nan, estimator = BayesianRidge())
+    imp_mean_train.fit(X)   
+    X = pd.DataFrame(imp_mean_train.transform(X))
+
+    return X
+
+def normalize_data_categorical(X):
+    for i in range(25):
+        feature = 'f' + str(i)
+        X[feature] = X[feature].apply(lambda x: converter_categorical(x,feature),1)
+
+
+
+    X = X.join(pd.get_dummies(X['f3'], prefix='f3')).drop(['f3'],axis=1)
+    X = X.join(pd.get_dummies(X['f4'], prefix='f4')).drop(['f4'],axis=1)
+    X = X.join(pd.get_dummies(X['f5'], prefix='f5')).drop(['f5'],axis=1)
+    X = X.join(pd.get_dummies(X['f6'], prefix='f6')).drop(['f6'],axis=1)
+    X = X.join(pd.get_dummies(X['f8'], prefix='f8')).drop(['f8'],axis=1)
+    X = X.join(pd.get_dummies(X['f9'], prefix='f9')).drop(['f9'],axis=1)
+    X = X.join(pd.get_dummies(X['f12'], prefix='f12')).drop(['f12'],axis=1)
+    X = X.join(pd.get_dummies(X['f13'], prefix='f13')).drop(['f13'],axis=1)
+    X = X.join(pd.get_dummies(X['f14'], prefix='f14')).drop(['f14'],axis=1)
+    X = X.join(pd.get_dummies(X['f16'], prefix='f16')).drop(['f16'],axis=1)
+    X = X.join(pd.get_dummies(X['f17'], prefix='f17')).drop(['f17'],axis=1)
+    X = X.join(pd.get_dummies(X['f19'], prefix='f19')).drop(['f19'],axis=1)
+    X = X.join(pd.get_dummies(X['f20'], prefix='f20')).drop(['f20'],axis=1)
+    X = X.join(pd.get_dummies(X['f21'], prefix='f21')).drop(['f21'],axis=1)
+
+    min_max_scaler = preprocessing.MinMaxScaler()
+    X = pd.DataFrame(min_max_scaler.fit_transform(X), columns=X.columns, index=X.index)
+
+    imp_mean_train = SimpleImputer(missing_values=np.nan, strategy='mean')
+    imp_mean_train.fit(X)
+    X = pd.DataFrame(imp_mean_train.transform(X))
+
+    return X
+
+def naive_bayes(y_train, X_train, y_test, X_test):
     model = GaussianNB
-    model.fit(train_feature, train_label['target'].astype('int'))
-    predicted = model.predict(test_feature)
+    model.fit(X_train, y_train['target'].astype('int'))
+    predicted = model.predict(X_test)
 
-def logistic_plot(train_label, train_feature, test_label, test_feature):
+def logistic_plot(X_train, X_test, y_train, y_test):
     fig, axes = plt.subplots(3, 2, figsize=(10, 15))
 
     title = "Learning Curves (Logistic)"
@@ -110,20 +194,34 @@ def logistic_plot(train_label, train_feature, test_label, test_feature):
     cv = ShuffleSplit(n_splits=100, test_size=0.2, random_state=0)
 
     estimator = LogisticRegression(max_iter = 100000)
-    print(estimator.get_params())
-    plot_learning_curve(estimator, title, train_feature, train_label['target'].astype('int'), axes=axes[:, 0], ylim=(0.7, 1.01),
+    plot_learning_curve(estimator, title, X_train, y_train['target'].astype('int'), axes=axes[:, 0], ylim=(0.7, 1.01),
                         cv=cv, n_jobs=4)
 
 
-#train, test = read_dataset()
-#train_label, train_feature, test_label, test_feature = normalize_data(train,test)
-train_csv = open('datasets/transformed_train.csv',"r")
-test_csv = open('datasets/transformed_test.csv',"r")
+X_train, X_test, y_train, y_test = read_dataset()
 
-train = pd.read_csv(train_csv)
-test  =  pd.read_csv(test_csv)
-train_label, train_feature = np.split(train, [2], axis = 1)
-test_label, test_feature =  np.split(test, [1], axis = 1)
+X_train_categorical = normalize_data_categorical(X_train.copy())
+X_test_categorical = normalize_data_categorical(X_test.copy())
 
-logistic_plot(train_label,train_feature, test_label, test_feature)
+X_train_it = normalize_data_it(X_train.copy(), y_train)
+X_test_it = normalize_data_it(X_test.copy(), y_train)
+
+X_train, X_test = normalize_data(X_train, X_test)
+
+#y_train.join(X_train_categorical).to_csv('datasets/transformed_train_new.csv', index = False)
+#y_test.join(X_test_categorical).to_csv('datasets/transformed_test_new.csv', index = False)
+
+#y_train.join(X_train).to_csv('datasets/transformed_train.csv', index = False)
+#y_test.join(X_test).to_csv('datasets/transformed_test.csv', index = False)
+
+
+#_, y, X = np.split(pd.read_csv(train_csv), [1,2], axis = 1)
+#X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.33, random_state=42)
+print("Training with X_train")
+#logistic_plot(X_train, X_test, y_train, y_test)
+print("Training with X_train_categorical")
+#logistic_plot(X_train_categorical, X_test_categorical, y_train, y_test)
+print("Training with X_train_iterative")
+logistic_plot(X_train_it, X_test_it, y_train, y_test)
+
 plt.show()

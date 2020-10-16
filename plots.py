@@ -1,11 +1,10 @@
-print(__doc__)
-
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.naive_bayes import GaussianNB
 from sklearn.svm import SVC
 from sklearn.datasets import load_digits
 from sklearn.model_selection import learning_curve
+
 
 
 def plot_learning_curve(estimator, title, X, y, axes=None, ylim=None, cv=None,
@@ -88,6 +87,7 @@ def plot_learning_curve(estimator, title, X, y, axes=None, ylim=None, cv=None,
     fit_times_mean = np.mean(fit_times, axis=1)
     fit_times_std = np.std(fit_times, axis=1)
 
+    print(train_scores[-1])
     # Plot learning curve
     axes[0].grid()
     axes[0].fill_between(train_sizes, train_scores_mean - train_scores_std,
