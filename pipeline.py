@@ -10,13 +10,13 @@ from tempfile import TemporaryDirectory
 
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_precision_score
-
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_precision_score, precision_score, \
+    recall_score
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import make_column_transformer
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, cross_val_score
 
 
 def converter(x,feature):
@@ -49,14 +49,20 @@ def converter(x,feature):
     elif feature == 'f24' and all(c in string.hexdigits for c in x): return int(x,16) # hex + ignore
 
 
-def evaluate_model(targets, predicted):
-
+def evaluate_model(targets, predicted, scores):
+    prc = precision_score(targets, predicted)
+    rc  = recall_score(targets, predicted)
     auc = roc_auc_score(targets, predicted)
     aps = average_precision_score(targets, predicted)
     acs = accuracy_score(targets, predicted)
+
+    print(f"{prc=}")
+    print(f"{rc=}")
     print(f"{auc=}")
     print(f"{aps=}")
     print(f"{acs=}")
+    print(f"{scores=}")
+
 
     plot_ROC(targets, predicted, auc)
 
@@ -125,7 +131,7 @@ def main():
     )
 
     with TemporaryDirectory() as cachedir:
-        classifier = make_pipeline(preprocessor, LogisticRegression(), memory=cachedir)
+        classifier = make_pipeline(preprocessor, LogisticRegression(max_iter = 1000000), memory=cachedir)
 
         X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
 
@@ -136,7 +142,9 @@ def main():
         predicted = classifier.predict(X_test)
         targets = y_test
 
-        evaluate_model(targets, predicted)
+        scores = cross_val_score(classifier, X_test, y_test, cv=5, scoring='f1_macro')
+        
+        evaluate_model(targets, predicted, scores)
 
 if __name__ == "__main__":
     main()
