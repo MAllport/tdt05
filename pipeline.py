@@ -4,6 +4,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 import string
+import imblearn
+
 from tempfile import TemporaryDirectory
 
 # from functools import partial
@@ -14,10 +16,12 @@ from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_pr
     recall_score
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.pipeline import Pipeline, make_pipeline
 from sklearn.compose import make_column_transformer
-from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.model_selection import train_test_split, cross_val_score, KFold, GridSearchCV
 from sklearn.utils import resample
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import Pipeline, make_pipeline
+from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 
 
 def converter(x,feature):
@@ -50,7 +54,7 @@ def converter(x,feature):
     elif feature == 'f24' and all(c in string.hexdigits for c in x): return int(x,16) # hex + ignore
 
 
-def evaluate_model(targets, predicted, scores):
+def evaluate_model(targets, predicted):
     prc = precision_score(targets, predicted)
     rc  = recall_score(targets, predicted)
     auc = roc_auc_score(targets, predicted)
@@ -62,7 +66,6 @@ def evaluate_model(targets, predicted, scores):
     print(f"{auc=}")
     print(f"{aps=}")
     print(f"{acs=}")
-    print(f"{scores=}")
 
 
     plot_ROC(targets, predicted, auc)
@@ -80,20 +83,9 @@ def plot_ROC(targets, predicted, auc):
 
 def main():
 
+    np.set_printoptions(precision=2,threshold=10)
     with open('datasets/challenge1_train.csv') as train_csv:
         df = pd.read_csv(train_csv)
-    
-    # Upsampling
-
-    df_0 = df[df.target == 0]
-    df_1 = df[df.target == 1]
-
-    df_1_upsampled = resample(df_1, 
-                              replace=True,           # sample with replacement
-                              n_samples=df_0.size,    # to match majority class
-                              random_state=123)
-
-    df = pd.concat([df_0, df_1_upsampled])  
 
     labels = df['target']
     features = df.drop(columns=['target', 'id'])
@@ -145,22 +137,40 @@ def main():
     )
 
     with TemporaryDirectory() as cachedir:
-        classifier = make_pipeline(preprocessor, LogisticRegression(max_iter = 1000000), memory=cachedir)
-
         X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
 
-        classifier.fit(X_train, y_train)
+        imba_pipeline = make_pipeline(preprocessor, SMOTE(), RandomForestClassifier(), memory=cachedir)
 
-        print("model score: %.3f" % classifier.score(X_test, y_test))
+        ''' CV '''
+        
+        kf = KFold(n_splits=5, shuffle=False)
+        params = {
+            'n_estimators'      : [200,700],
+            'max_depth'         : [8, 9, 10, 11, 12],
+            'random_state'      : [0],
+            'max_features'      : ['sqrt', 'log2']
+            #'criterion' :['gini']
+        }
 
-        predicted = classifier.predict(X_test)
+        logreg_params = {'randomforestclassifier__' + key: params[key] for key in params}
+
+        grid_imba = GridSearchCV(imba_pipeline, param_grid=logreg_params, cv=kf, scoring='recall',
+                        return_train_score=True, n_jobs=7)
+
+        grid_imba.fit(X_train, y_train)
+
+        print(grid_imba.best_params_)
+        print(grid_imba.best_score_)
+
+        ''' END OF CV '''
+
+        predicted = grid_imba.predict(X_test)
 
         targets = y_test
-
-        scores = cross_val_score(classifier, X_test, y_test, cv=5)
         
-        evaluate_model(targets, predicted, scores)
+        evaluate_model(targets, predicted)
 
 if __name__ == "__main__":
+    
     main()
 
