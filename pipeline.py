@@ -2,9 +2,10 @@ import pandas as pd
 import sklearn as sk
 import numpy as np
 import matplotlib.pyplot as plt
-
 import string
+import seaborn as sns
 import imblearn
+import scipy
 
 from tempfile import TemporaryDirectory
 
@@ -13,7 +14,7 @@ from tempfile import TemporaryDirectory
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_precision_score, precision_score, recall_score, balanced_accuracy_score, f1_score, classification_report
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.preprocessing import StandardScaler, OneHotEncoder, MinMaxScaler, LabelEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import make_column_transformer
 from sklearn.model_selection import train_test_split, cross_val_score, KFold, GridSearchCV
@@ -21,36 +22,17 @@ from sklearn.utils import resample
 from imblearn.over_sampling import SMOTE
 from imblearn.pipeline import Pipeline, make_pipeline
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
+from sklearn.base import TransformerMixin, BaseEstimator
+from itertools import combinations
 
 
-def converter(x,feature):
+from scipy.stats import chi2_contingency,spearmanr
 
-    if x == "" or pd.isna(x): return np.nan
-    elif feature == 'f0' : return int(x,16)
-    elif feature == 'f1' : return x
-    elif feature == 'f2' : return x
-    elif feature == 'f3' : return x # categorical
-    elif feature == 'f4' : return x # ordinal categories 1-6
-    elif feature == 'f5' : return x
-    elif feature == 'f6' : return x # ordinal 0.0 - 0.5
-    elif feature == 'f7' : return int(x,16)
-    elif feature == 'f8' : return x # ordinal 1 - 12
-    elif feature == 'f9' : return x # categorical
-    elif feature == 'f10': return x
-    elif feature == 'f11': return x
-    elif feature == 'f12': return x # ordinal 1-7
-    elif feature == 'f13': return x
-    elif feature == 'f14': return x # categorical
-    elif feature == 'f15': return int(x,16)
-    elif feature == 'f16': return x # categorical
-    elif feature == 'f17': return x # ordinal 0-3
-    elif feature == 'f18': return x
-    elif feature == 'f19': return x # ordinal 1-3
-    elif feature == 'f20': return x # ordinal 0-4
-    elif feature == 'f21': return x # categorical
-    elif feature == 'f22': return x
-    elif feature == 'f23': return int(x,16)
-    elif feature == 'f24' and all(c in string.hexdigits for c in x): return int(x,16) # hex + ignore
+numeric_features     = ['f2', 'f18']
+hexadecimal_features = ['f0', 'f7', 'f15', 'f23', 'f24']
+boolean_features     = ['f1', 'f10', 'f11', 'f13', 'f22']
+ordinal_features     = ['f4', 'f6', 'f8', 'f12', 'f17', 'f19', 'f20']
+categorical_features = ['f3', 'f9', 'f14', 'f16', 'f21']
 
 
 def evaluate_model(targets, predicted):
@@ -117,37 +99,85 @@ def fit_gridsearch(pipeline, X_train, y_train):
 
     grid_imba.fit(X_train, y_train)
 
-    print(grid_imba.best_params_)
-    print(f"Best score ({grid_imba.scoring}): ", end='')
-    print(grid_imba.best_score_)
-
     return grid_imba
 
+def conv_hex(x):
+    try:
+        return int(x, 16)
+    except ValueError:
+        return np.nan
+    except TypeError:
+        return np.nan
+
+def spearman(df):
+    print("Spearmans \n")
+    comb = combinations(list(df), 2)
+    for col1, col2 in comb:
+        coef, p = spearmanr(df[col1], df[col2], nan_policy="omit")
+        # interpret the significance
+        alpha = 0.05
+        if p < alpha:
+            print("Comparing " + col1 + " and " + col2)
+            print('Spearmans correlation coefficient: %.3f' % coef)
+            print('Samples are correlated (reject H0) p=%.3f' % p)
+
+def chi2(df):
+    print("Chi2 \n")
+    comb = combinations(list(df), 2)
+    for col1, col2 in comb:
+        p = chi2_contingency(pd.crosstab(df[col1], df[col2]))[1]
+        # interpret the significance
+        alpha = 0.05
+        if p < alpha:
+            print("Comparing " + col1 + " and " + col2)
+            print('Samples are correlated (reject H0) p=%.3f' % p)
+
+def analyze_corr(features):
+
+    le = LabelEncoder()
+    for i in range(25):
+        feature = "f" + str(i)
+        if feature in hexadecimal_features:
+            features[feature] = features[feature].apply(lambda x: conv_hex(x))
+        if feature in categorical_features:
+            #features[feature] = pd.get_dummies(features[feature])
+            features[feature] = le.fit_transform(features[feature].astype(str))    
+
+    min_max_scaler = MinMaxScaler()
+    features = pd.DataFrame(min_max_scaler.fit_transform(features), columns=features.columns, index=features.index)
+    df_num = features[features.columns & (numeric_features + ordinal_features)]
+    df_cat = features[features.columns & (categorical_features + ordinal_features)]
+
+    spearman(df_cat)
+    chi2(df_cat)
+
+    sns.pairplot(df_num, kind="scatter")
+    plt.savefig("numpairs.png")
+
+    sns.pairplot(df_cat, kind="scatter")
+    plt.savefig("catpairs.png")
+
+
+
+    print("Correlation between numeric columns : ")
+    print(df_num.corr())
 
 def main():
 
-    np.set_printoptions(precision=2,threshold=10)
-
     with open('datasets/challenge1_train.csv') as train_csv:
-        df = pd.read_csv(train_csv)
+        df = pd.read_csv(train_csv, skipinitialspace=True)
 
     labels = df['target']
     features = df.drop(columns=['target', 'id'])
 
+    analyze_corr(features.copy())
 
-    # TODO: preprocess test features when we want to predict on test set
+
     for i in range(25):
-        feature = 'f' + str(i)
-        features[feature] = features[feature].apply(lambda x: converter(x,feature))
-
-    numeric_features     = ['f2', 'f18']
-    hexadecimal_features = ['f0', 'f7', 'f15', 'f23', 'f24']
-    boolean_features     = ['f1', 'f10', 'f11', 'f13', 'f22']
-    ordinal_features     = ['f4', 'f6', 'f8', 'f12', 'f17', 'f19', 'f20']
-    categorical_features = ['f3', 'f9', 'f14', 'f16', 'f21']
-
-    # TODO: iterative imputer, gridsearch, standard vs minmax scaler
-
+        feature = "f" + str(i)
+        if feature in hexadecimal_features:
+            features[feature] = features[feature].apply(lambda x: conv_hex(x))
+    
     numeric_transformer = make_pipeline(
         SimpleImputer(strategy='median'),
         StandardScaler()
@@ -188,7 +218,8 @@ def main():
         )
 
         model = fit_model(imba_pipeline, X_train, X_test, y_train, y_test)
-        # model = fit_gridsearch(imba_pipeline, X_train, y_train)
+        #model = fit_gridsearch(imba_pipeline, X_train, y_train)
+
 
         predicted = model.predict(X_test)
         evaluate_model(y_test, predicted)
