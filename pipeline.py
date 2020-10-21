@@ -20,11 +20,12 @@ from sklearn.compose import make_column_transformer
 from sklearn.model_selection import train_test_split, cross_val_score, KFold, GridSearchCV
 from sklearn.utils import resample
 from imblearn.over_sampling import SMOTE
+from imblearn.over_sampling import RandomOverSampler
 from imblearn.pipeline import Pipeline, make_pipeline
 from sklearn.ensemble import RandomForestClassifier, AdaBoostClassifier
 from sklearn.base import TransformerMixin, BaseEstimator
 from itertools import combinations
-
+from sklearn.svm import SVC
 
 from scipy.stats import chi2_contingency,spearmanr
 
@@ -79,25 +80,52 @@ def fit_gridsearch(pipeline, X_train, y_train):
 
     kf = KFold(n_splits=5, shuffle=False)
 
-    params = {
-        'n_estimators'      : [200,700],
-        'max_depth'         : [8, 9, 10, 11, 12],
-        'max_features'      : ['sqrt', 'log2']
-        #'criterion' :['gini']
-    }
+    #params = {
+    #    'n_estimators'      : [200,700],
+    #    'max_depth'         : [8, 9, 10, 11, 12],
+    #    'max_features'      : ['sqrt', 'log2']
+    #    #'criterion' :['gini']
+    #}
 
-    logreg_params = {'randomforestclassifier__' + key: params[key] for key in params}
+    #logreg_params = {'randomforestclassifier__' + key: params[key] for key in params}
+
+    #grid_imba = GridSearchCV(
+    #    pipeline,
+    #    param_grid=logreg_params,
+    #    cv=kf,
+    #    scoring='balanced_accuracy',
+    #    return_train_score=True,
+    #    n_jobs=7
+    #)
+
+    params = [
+        {
+            'kernel': ['rbf'],
+            'gamma': [1e-3, 1e-4],
+            'C': [1, 10, 100, 1000]
+        },
+        {
+            'kernel': ['linear'],
+            'C': [1, 10, 100, 1000]
+        }
+    ]
+
+    params = [{'svc__' + key: d[key] for key in d} for d in params]
 
     grid_imba = GridSearchCV(
         pipeline,
-        param_grid=logreg_params,
+        param_grid=params,
         cv=kf,
-        scoring='balanced_accuracy',
+        scoring='f1',
         return_train_score=True,
         n_jobs=7
     )
 
     grid_imba.fit(X_train, y_train)
+
+    print(grid_imba.best_params_)
+    print(f"Best score ({grid_imba.scoring}): ", end='')
+    print(grid_imba.best_score_)
 
     return grid_imba
 
@@ -169,6 +197,7 @@ def main():
 
     labels = df['target']
     features = df.drop(columns=['target', 'id'])
+    # print(df.duplicated().any())
 
     analyze_corr(features.copy())
 
@@ -208,21 +237,26 @@ def main():
 
     with TemporaryDirectory() as cachedir:
 
-        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
+        X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2, stratify=labels)
 
         imba_pipeline = make_pipeline(
             preprocessor,
             SMOTE(),
-            RandomForestClassifier(random_state=0),
+            # RandomOverSampler(),
+            # RandomForestClassifier(random_state=0),
+            # SVC(kernel="linear", C=0.025),
+            SVC(),
             memory=cachedir
         )
 
+        # preprocessor.fit_transform(X_train, y_train)
+
         model = fit_model(imba_pipeline, X_train, X_test, y_train, y_test)
-        #model = fit_gridsearch(imba_pipeline, X_train, y_train)
+        # model = fit_gridsearch(imba_pipeline, X_train, y_train)
 
-
-        predicted = model.predict(X_test)
-        evaluate_model(y_test, predicted)
+        # predicted = model.predict(X_test)
+        # evaluate_model(y_test, predicted)
+        # pd.DataFrame(predicted).to_csv("predictions.csv")
 
 
 if __name__ == "__main__":
