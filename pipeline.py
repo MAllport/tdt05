@@ -12,8 +12,7 @@ from tempfile import TemporaryDirectory
 
 from sklearn.naive_bayes import GaussianNB
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_precision_score, precision_score, \
-    recall_score
+from sklearn.metrics import accuracy_score, roc_auc_score, roc_curve, average_precision_score, precision_score, recall_score, balanced_accuracy_score, f1_score, classification_report
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.impute import SimpleImputer
 from sklearn.compose import make_column_transformer
@@ -55,22 +54,27 @@ def converter(x,feature):
 
 
 def evaluate_model(targets, predicted):
-    prc = precision_score(targets, predicted)
-    rc  = recall_score(targets, predicted)
-    auc = roc_auc_score(targets, predicted)
-    aps = average_precision_score(targets, predicted)
-    acs = accuracy_score(targets, predicted)
 
-    print(f"{prc=}")
-    print(f"{rc=}")
-    print(f"{auc=}")
-    print(f"{aps=}")
-    print(f"{acs=}")
+    metrics = {
+        'accuracy': accuracy_score,
+        'balanced accuracy': balanced_accuracy_score,
+        'recall' : recall_score,
+        'precision': precision_score,
+        'average precision': average_precision_score,
+        'AUC': roc_auc_score,
+        'F1': f1_score,
+    }
 
+    for metric, fun in metrics.items():
+        print(f"{metric} = {fun(targets, predicted):.2f}")
 
-    plot_ROC(targets, predicted, auc)
+    print(classification_report(targets, predicted))
+
+    # plot_ROC(targets, predicted, average_precision_score(targets, predicted))
+
 
 def plot_ROC(targets, predicted, auc):
+
     fpr, tpr, thresholds = roc_curve(targets, predicted)
     plt.plot(fpr, tpr) 
     plt.axis("Square")
@@ -80,10 +84,50 @@ def plot_ROC(targets, predicted, auc):
     plt.show()
 
 
+def fit_model(pipeline, X_train, X_test, y_train, y_test):
+
+    pipeline.fit(X_train, y_train)
+    print("model score: %.3f" % pipeline.score(X_test, y_test))
+
+    return pipeline
+
+    
+def fit_gridsearch(pipeline, X_train, y_train):
+
+
+    kf = KFold(n_splits=5, shuffle=False)
+
+    params = {
+        'n_estimators'      : [200,700],
+        'max_depth'         : [8, 9, 10, 11, 12],
+        'max_features'      : ['sqrt', 'log2']
+        #'criterion' :['gini']
+    }
+
+    logreg_params = {'randomforestclassifier__' + key: params[key] for key in params}
+
+    grid_imba = GridSearchCV(
+        pipeline,
+        param_grid=logreg_params,
+        cv=kf,
+        scoring='balanced_accuracy',
+        return_train_score=True,
+        n_jobs=7
+    )
+
+    grid_imba.fit(X_train, y_train)
+
+    print(grid_imba.best_params_)
+    print(f"Best score ({grid_imba.scoring}): ", end='')
+    print(grid_imba.best_score_)
+
+    return grid_imba
+
 
 def main():
 
     np.set_printoptions(precision=2,threshold=10)
+
     with open('datasets/challenge1_train.csv') as train_csv:
         df = pd.read_csv(train_csv)
 
@@ -95,10 +139,6 @@ def main():
     for i in range(25):
         feature = 'f' + str(i)
         features[feature] = features[feature].apply(lambda x: converter(x,feature))
-
-    # print(features.describe())
-    # print(features.dtypes)
-    # print(features['f0'])
 
     numeric_features     = ['f2', 'f18']
     hexadecimal_features = ['f0', 'f7', 'f15', 'f23', 'f24']
@@ -137,40 +177,23 @@ def main():
     )
 
     with TemporaryDirectory() as cachedir:
+
         X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
 
-        imba_pipeline = make_pipeline(preprocessor, SMOTE(), RandomForestClassifier(), memory=cachedir)
+        imba_pipeline = make_pipeline(
+            preprocessor,
+            SMOTE(),
+            RandomForestClassifier(random_state=0),
+            memory=cachedir
+        )
 
-        ''' CV '''
-        
-        kf = KFold(n_splits=5, shuffle=False)
-        params = {
-            'n_estimators'      : [200,700],
-            'max_depth'         : [8, 9, 10, 11, 12],
-            'random_state'      : [0],
-            'max_features'      : ['sqrt', 'log2']
-            #'criterion' :['gini']
-        }
+        model = fit_model(imba_pipeline, X_train, X_test, y_train, y_test)
+        # model = fit_gridsearch(imba_pipeline, X_train, y_train)
 
-        logreg_params = {'randomforestclassifier__' + key: params[key] for key in params}
+        predicted = model.predict(X_test)
+        evaluate_model(y_test, predicted)
 
-        grid_imba = GridSearchCV(imba_pipeline, param_grid=logreg_params, cv=kf, scoring='recall',
-                        return_train_score=True, n_jobs=7)
-
-        grid_imba.fit(X_train, y_train)
-
-        print(grid_imba.best_params_)
-        print(grid_imba.best_score_)
-
-        ''' END OF CV '''
-
-        predicted = grid_imba.predict(X_test)
-
-        targets = y_test
-        
-        evaluate_model(targets, predicted)
 
 if __name__ == "__main__":
-    
     main()
 
