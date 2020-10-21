@@ -132,7 +132,7 @@ def chi2(df):
             print("Comparing " + col1 + " and " + col2)
             print('Samples are correlated (reject H0) p=%.3f' % p)
 
-def analyze_corr(features):
+def analyze_corr(labels,features):
 
     le = LabelEncoder()
     for i in range(25):
@@ -148,7 +148,7 @@ def analyze_corr(features):
     df_num = features[features.columns & (numeric_features + ordinal_features)]
     df_cat = features[features.columns & (categorical_features + ordinal_features)]
 
-    spearman(df_cat)
+    spearman(features)
     chi2(df_cat)
 
     sns.pairplot(df_num, kind="scatter")
@@ -157,7 +157,12 @@ def analyze_corr(features):
     sns.pairplot(df_cat, kind="scatter")
     plt.savefig("catpairs.png")
 
+    correlations = features.corr(method="spearman")
 
+    fig, ax = plt.subplots(figsize=(15,15))
+    heatmap = sns.heatmap(correlations, vmax=1.0, center=0, fmt='.2f',
+            square=True, linewidths=.5, annot=True, cbar_kws={"shrink": .70})
+    plt.savefig('heatmap.png')
 
     print("Correlation between numeric columns : ")
     print(df_num.corr())
@@ -170,7 +175,19 @@ def main():
     labels = df['target']
     features = df.drop(columns=['target', 'id'])
 
-    analyze_corr(features.copy())
+    missing_values = df.isna().sum()
+    fig, ax = plt.subplots(1,2, figsize=(15, 12))
+    sns.barplot(missing_values.values, missing_values.index, ax=ax[0])
+    ax[0].set_title("Barplot of missing values for each feature")
+    ax[0].set_xlabel('# of missing values')
+    ax[0].set_ylabel('Feature')
+
+    sns.distplot(missing_values.values, ax=ax[1], kde=False)
+    ax[1].set_title("Distribution of missing values for each feature")
+    ax[1].set_xlabel('# of missing values')
+    ax[1].set_ylabel('Bin count')
+
+    analyze_corr(labels, features.copy())
 
 
     for i in range(25):
@@ -213,12 +230,23 @@ def main():
         imba_pipeline = make_pipeline(
             preprocessor,
             SMOTE(),
-            RandomForestClassifier(random_state=0),
+            RandomForestClassifier(n_estimators=500, random_state=0),
             memory=cachedir
         )
 
         model = fit_model(imba_pipeline, X_train, X_test, y_train, y_test)
         #model = fit_gridsearch(imba_pipeline, X_train, y_train)
+
+        f = X_train.columns
+        importances = model.named_steps["randomforestclassifier"].feature_importances_
+        indices = np.argsort(importances)
+
+        plt.figure(figsize=(10,15))
+        plt.title('Feature Importances')
+        plt.barh(range(len(indices)), importances[indices], color='b', align='center')
+        plt.yticks(range(len(indices)), [f[i] for i in indices])
+        plt.xlabel('Relative Importance')
+        plt.show()
 
 
         predicted = model.predict(X_test)
